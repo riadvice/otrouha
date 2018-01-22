@@ -1,0 +1,508 @@
+#!/bin/bash
+
+#
+# Copyright (C) 2018 RIADVICE SUARL <otrouha@riadvice.tn>
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.
+#
+#
+# Author(s):
+#       Ghazi Triki <ghazi.triki@riadvice.tn>
+#
+# Changelog:
+#   2018-01-21 GTR Initial Version
+
+# The real location of the script
+SCRIPT=$(readlink -f "$0")
+
+# Current unix username
+USER=$(whoami)
+
+# Directory where the script is located
+BASEDIR=$(dirname "$SCRIPT")
+
+# Formatted current date
+NOW=$(date +"%Y-%m-%d_%H.%M.%S")
+
+# Production Otrouha directory
+APP_DIR=/var/www
+
+# Node.js chat application name
+CHAT_APP=lms-chat
+
+# Current git branch name transforms '* dev-0.5' to 'dev-0.5'
+GIT_BRANCH=$(git --git-dir="$BASEDIR/../.git" branch | sed -n '/\* /s///p')
+
+# Git tag, commits ahead & commit id under format '0.4-160-g3bb256c'
+GIT_VERSION=$(git --git-dir="$BASEDIR/../.git" describe --tags --always HEAD)
+
+#
+# Display usage
+#
+usage() {
+	echo
+	echo "#========================================================================================================"
+	echo "#"
+	echo "# Opinion Configuration Utility for Otrouha - Version $GIT_VERSION on $GIT_BRANCH branch"
+	echo "#"
+	echo "#    opinion [options]"
+	echo "#"
+	echo "# Configuration:"
+	echo "#    --version                        Display Otrouha version"
+	echo "#    --selfinstall                    Make opinion runnable from anywhere"
+	echo "#"
+	echo "# Development:"
+	echo "#    --enabletests                    Enable running unit tests"
+	echo "#    --test <-c> <name>               Run unit tests with a test name. Use for -c coverage"
+	echo "#    --fix                            Fix php code style"
+	echo "#    --migrate                        Run database migrations"
+	echo "#"
+	echo "# Monitoring:"
+	echo "#    --check                          Check configuration files and processes for problems"
+	echo "#"
+	echo "# Administration:"
+	echo "#    --pull                           Pull source code from its repository"
+	echo "#    --deploy                         Deploy the application on a production server"
+	echo "#    --restart                        Restart Otrouha"
+	echo "#    --stop                           Stop Otrouha"
+	echo "#    --start                          Start Otrouha"
+	echo "#    --startchat                      Start Node.js chat application"
+	echo "#    --clean                          Restart and clean all log files"
+	echo "#    --status                         Display running status of components"
+	echo "#    --zip                            Zip up log files for reporting an error"
+	echo "#"
+	echo "#========================================================================================================"
+	echo
+}
+
+#
+# Check file
+#
+check_file() {
+	if [ ! -f "$1" ]; then
+		echo "✘ File does not exist: $1"
+		# m option means that the file is mandatory and the script cannot continue running
+		if [ "$2" == "m" ]
+		then
+		echo "✘ File $1 is mandatory. Script execution is interupted"
+			exit 1
+		fi
+	fi
+}
+
+need_production() {
+	if [ "$ENVIRONMENT" != "production" ]
+	then
+		echo "✘ Command can only be run in production environment"
+		exit 1
+	fi
+}
+#
+# Display installed Otrouha & servers version
+#
+display_version() {
+	echo "■ Otrouha  :  $GIT_VERSION"
+	echo "■ MySQL    :$(mysql -V | sed 's/\,.*//' | sed 's/\mysql//')"
+	echo "■ PHP      :  $(php -v | sed -n 1p)"
+}
+
+#
+# Install opinion to make runnable from anywhere
+#
+self_install() {
+	if [ -f /usr/local/bin/opinion ]; then
+		echo "✘ opinion already installed"
+	else
+		sudo ln -s "$SCRIPT" /usr/local/bin/opinion
+		echo "✔ opinion successfully installed"
+	fi
+}
+
+#
+# Clean server status
+#
+display_status() {
+	units="apache2 mysql PM2"
+	echo
+	line='————————————————————►'
+	for unit in $units; do
+		if [ $(pgrep -c "$unit") != 0 ]; then
+			printf "%s %s [✔ - UP]\n" $unit "${line:${#unit}}"
+		else
+			printf "%s %s [✘ - DOWN]\n" $unit "${line:${#unit}}"
+		fi
+	done
+	echo
+}
+
+#
+# Clean Otrouha cache
+#
+clean_cache() {
+	echo "► Deleting cache"
+	find "$BASEDIR/../bin/" ! -name '.gitkeep' -type f -exec rm -rfv {} \;
+	find "$BASEDIR/../bin/" ! -name 'bin' -type d -exec rm -rfv {} \;
+	find "$BASEDIR/../tmp/cache/" ! -name '.gitkeep' -type f -exec rm -rfv {} \;
+	find "$BASEDIR/../tmp/mail/" -name '*.eml' -type f -exec rm -v {} \;
+	find "$BASEDIR/../uploads/tmp/" -type f -exec rm -v {} \;
+	find "$BASEDIR/../public/minified/" ! -name '.gitkeep' -type f -exec rm -v {} \;
+	echo "✔ Cache deleted"
+}
+
+#
+# Clean Otrouha cache
+#
+clean_logs() {
+	echo "► Cleaning logs"
+
+	find "$BASEDIR/../logs/" ! -name '.gitkeep' -type f -exec rm -v {} \;
+
+	echo "✔ Cleaned logs folder"
+}
+
+#
+# Archive logs for debugging
+#
+zip_logs() {
+	echo "► Archiving logs"
+
+	ARCHIVE="/home/$USER/logs/logs-$NOW.tar.gz"
+	mkdir -p "/home/$USER/logs/"
+
+	touch /tmp/empty
+	tar cfv  "$ARCHIVE"   /tmp/empty
+	tar rfv "$ARCHIVE" "$BASEDIR/../logs/" --exclude='.gitkeep'
+	sudo tar rfv "$ARCHIVE" /var/log/apache2/
+	sudo tar rfv "$ARCHIVE" /var/log/mysql/
+	echo "✔ Logs archived at $ARCHIVE"
+}
+
+#
+# Run PHP Code Style Fixer
+#
+fix_styles() {
+	echo "► Running PHP Code Style Fixer"
+
+	cd "$BASEDIR/../"
+
+	sudo phpdismod -s cli xdebug
+	./vendor/bin/php-cs-fixer fix --allow-risky=yes
+	sudo phpenmod -s cli xdebug
+	echo "✔ PHP Code Style Fixed"
+}
+
+#
+# Enable unit tests
+#
+enable_tests() {
+	echo "► Enabling unit tests"
+
+	rm -rfv   "$BASEDIR/../public/exam/"
+	mkdir -pv "$BASEDIR/../public/exam/coverage/"
+	mkdir -pv "$BASEDIR/../public/exam/result/"
+	cp -Rv "$BASEDIR/../tools/exam.php" "$BASEDIR/../public/exam/index.php"
+	cp -Rv "$BASEDIR/../tests/ui/css" "$BASEDIR/../public/exam/"
+	cp -Rv "$BASEDIR/../tests/ui/images" "$BASEDIR/../public/exam/"
+	cp -Rv "$BASEDIR/../tests/ui/css" "$BASEDIR/../public/exam/result"
+	cp -Rv "$BASEDIR/../tests/ui/images" "$BASEDIR/../public/exam/result"
+	cp "$BASEDIR/../vendor/bcosca/fatfree-core/code.css" "$BASEDIR/../public/exam/css/code.css"
+	cp "$BASEDIR/../vendor/bcosca/fatfree-core/code.css" "$BASEDIR/../public/exam/result/css/code.css"
+
+	echo "✔ Unit tests enabled"
+}
+
+#
+# Run unit test in CLI mode
+#
+run_tests() {
+	echo "► Running unit tests"
+	COVERAGE=$1
+	USE_COVERAGE=""
+	TEST_NAME="all"
+
+	if [ "$1" != "-c" ]
+	then
+		if [ "$1" != "" ]
+		then
+			TEST_NAME=$1
+		fi
+
+		if [ "$2" == "-c" ]
+		then
+			USE_COVERAGE="=withCoverage"
+		fi
+	fi
+
+	if [ "$1" == "-c" ]
+	then
+		USE_COVERAGE="=withCoverage"
+		if [ "$2" != "" ]
+		then
+			TEST_NAME=$2
+		fi
+	fi
+
+	cd $(dirname "$BASEDIR")
+	# Revert database base to the iniial state then create it again
+	"vendor/bin/phinx" rollback -e testing -t 0
+	"vendor/bin/phinx" migrate -e testing
+
+	cd "public"
+
+	export XDEBUG_CONFIG="idekey=vagrant"
+	export PHP_IDE_CONFIG="serverName=otrouha.dev"
+
+	php -dxdebug.remote_host=192.168.33.1 index.php "/?exam$USE_COVERAGE&test=$TEST_NAME" -o="../public/exam/result/index.html"
+
+	SUCCESS=$(cat "exam/test.result")
+	if [ "$SUCCESS" == "success" ]
+	then
+		echo "✔ Test success"
+		exit 0
+	else
+		echo "✘ Test fail"
+		exit 1
+	fi
+}
+
+#
+# Updates composer and reset user home composer ownership
+#
+update_composer() {
+	echo "► Updating composer"
+	sudo composer selfupdate
+	sudo chown -R "$USER:$USER" "/home/$USER/.composer/"
+}
+
+#
+# Fetch the source code from its repository
+#
+update_source_code() {
+	need_production
+	echo "► Pulling source code in $APP_DIR"
+	cd "$APP_DIR"
+	git pull
+}
+
+# Install composer dependencies
+#
+install_dependencies() {
+	cd $(dirname "$BASEDIR")
+	echo "► Updating composer dependencies"
+	composer install -o --no-dev
+}
+
+#
+# Run database migrations
+#
+run_migrations() {
+	echo "► Running database migration"
+	cd $(dirname "$BASEDIR")
+	vendor/bin/phinx migrate -e "$ENVIRONMENT"
+}
+
+#
+# Update the chat application
+#
+update_chat() {
+	echo "► Updating chat application"
+	cd "$APP_DIR/chat/"
+	npm update
+}
+
+#
+# Give folders right permissions
+#
+chmod_folders() {
+	cd "$APP_DIR"
+	sudo chmod -R 777 -R logs/*
+	sudo chmod -R 777 -R tmp/*
+	sudo chmod -R 777 -R uploads/*
+	sudo chmod -R 777 -R public/minified/*
+}
+
+#
+# Fully deploys all the application
+#
+deploy_application() {
+	need_production
+	update_composer
+	install_dependencies
+	run_migrations
+	update_chat
+	chmod_folders
+	restart_services
+}
+
+#
+# Start services
+#
+start_services() {
+	sudo service apache2 start
+	sudo service mysql start
+	start_chat_application
+}
+
+#
+# Stop services
+#
+stop_services() {
+	sudo service apache2 stop
+	sudo service mysql stop
+	pm2 delete "$CHAT_APP"
+}
+
+#
+# Restart services
+#
+restart_services() {
+	sudo service apache2 restart
+	sudo service mysql restart
+	pm2 delete "$CHAT_APP"
+	start_chat_application
+}
+
+#
+# Start chat application
+#
+start_chat_application() {
+	pm2 start "$BASEDIR/../chat/server.js" --name="$CHAT_APP" -o "$BASEDIR/../logs/lms-chat-out.log" -e "$BASEDIR/../logs/lms-chat-error.log" -x -- "$ENVIRONMENT"
+}
+
+run() {
+
+	if [ $# -eq 0 ]; then
+		usage
+		exit 1
+	fi
+
+	# Environment
+	HOST_TESTER=$(grep -R "otrouha" "/etc/hosts")
+	if [ "$HOST_TESTER" == "" ]
+	then
+		ENVIRONMENT=production
+	else
+		ENVIRONMENT=development
+	fi
+
+	echo "► Detected environment: \`$ENVIRONMENT\`"
+
+	while [ $# -gt 0 ]; do
+
+		if [ "$1" = "--version" -o "$1" = "-version" -o "$1" = "-v" ]; then
+			display_version
+			shift
+			continue
+		fi
+
+		if [ "$1" = "--selfinstall" -o "$1" = "-selfinstall" -o "$1" = "-si" ]; then
+			self_install
+			shift
+			continue
+		fi
+
+		if [ "$1" = "--enabletests" -o "$1" = "-enabletests" -o "$1" = "-e" ]; then
+			enable_tests
+			shift
+			continue
+		fi
+
+		if [ "$1" = "--test" -o "$1" = "-test" -o "$1" = "-t" ]; then
+			run_tests "$2" "$3"
+
+			shift; shift
+			continue
+		fi
+
+		if [ "$1" = "--check" -o "$1" = "-check" ]; then
+			# todo: apache config, mysql config, directories permissions...
+			echo "not implemented yet"
+			shift
+			continue
+		fi
+
+		if [ "$1" = "--fix" -o "$1" = "-fix" -o "$1" = "-f" ]; then
+			fix_styles
+			shift
+			continue
+		fi
+
+		if [ "$1" = "--migrate" -o "$1" = "-migrate" -o "$1" = "-m" ]; then
+			run_migrations
+			shift
+			continue
+		fi
+
+		if [ "$1" = "--clean" -o "$1" = "-clean" ]; then
+			clean_cache
+			clean_logs
+			shift
+			continue
+		fi
+
+		if [ "$1" = "--pull" -o "$1" = "-pull" -o "$1" = "-p" ]; then
+			update_source_code
+			shift
+			continue
+		fi
+
+		if [ "$1" = "--deploy" -o "$1" = "-deploy" -o "$1" = "-d" ]; then
+			deploy_application
+			shift
+			continue
+		fi
+
+		if [ "$1" = "--restart" -o "$1" = "-restart" -o "$1" = "-r" ]; then
+			restart_services
+			shift
+			continue
+		fi
+
+		if [ "$1" = "--stop" -o "$1" = "-stop" -o "$1" = "-sp" ]; then
+			stop_services
+			shift
+			continue
+		fi
+
+		if [ "$1" = "--start" -o "$1" = "-start" -o "$1" = "-sr" ]; then
+			start_services
+			shift
+			continue
+		fi
+
+		if [ "$1" = "--startchat" -o "$1" = "-startchat" -o "$1" = "-sc" ]; then
+			start_chat_application
+			shift
+			continue
+		fi
+
+		if [ "$1" = "--status" -o "$1" = "-status" ]; then
+			display_status
+			shift
+			continue
+		fi
+
+		if [ "$1" = "--zip" -o "$1" = "-zip" -o "$1" = "-z" ]; then
+			zip_logs
+			shift
+			continue
+		fi
+
+	usage
+	exit 1
+
+	done
+}
+
+run "$@" #2>&1 | tee -a "$BASEDIR/../logs/opinion-$NOW.log"

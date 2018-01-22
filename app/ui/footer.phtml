@@ -1,0 +1,29 @@
+<js src="plugins/jquery/jquery.min.js"/>
+<js src="plugins/jquery/jquery-ui.min.js"/>
+<js src="plugins/jquery/jquery-migrate.min.js"/>
+<js src="plugins/jquery/jquery.mCustomScrollbar.js"/>
+<js src="plugins/jquery/globalize.js"/>
+<js src="plugins/bootstrap/bootstrap.js"/>
+
+<js src="core/plugins.js"/>
+<js src="core/locale.js"/>
+<js src="core/common.js"/>
+
+{{ \Helpers\Assets::instance()->renderGroup('footer') }}
+
+<script>
+    jQuery(document).ready(function () {
+    {{ \Helpers\Assets::instance()->currentJsLocale() }}
+    {{ \Helpers\Assets::instance()->initJsClasses() }}
+    {{ \Helpers\Assets::instance()->setCDN() }}
+    {{ \Helpers\Flash::instance()->showMessages() }}
+    });
+</script>
+<!-- END JAVASCRIPT -->
+</body>
+<!-- END BODY -->
+</html>
+
+<!-- /footer content -->
+</body>
+</html>

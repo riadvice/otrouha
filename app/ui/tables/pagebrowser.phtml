@@ -1,0 +1,23 @@
+<div class="row">
+	<div class="col-md-12 text-center">
+		<ul class="pagination text-center">
+			<check if="{{@pg.firstPage}}">
+				<li><a href="{{@BASE, @pg.route, @pg.prefix.@pg.firstPage}}?{{ @QUERY }}" data-i18n-html="lbl.core.first"> {{ @i18n.label.core.first }} </a></li>
+			</check>
+			<check if="{{@pg.prevPage}}">
+				<li><a href="{{@BASE, @pg.route, @pg.prefix.@pg.prevPage}}?{{ @QUERY }}"><i class="icon-angle-left"></i></a></li>
+			</check>
+			<repeat group="{{@pg.rangePages}}" value="{{@page}}">
+				<li {{@page== @pg.currentPage ?
+				'class="active"':'' }}><a href="{{@BASE, @pg.route, @pg.prefix.@page}}?{{ @QUERY }}">{{@page}}</a></li>
+			</repeat>
+			<check if="{{@pg.nextPage}}">
+				<li><a href="{{@BASE, @pg.route, @pg.prefix.@pg.nextPage}}?{{ @QUERY }}"><i class="icon-angle-right"></i></a></li>
+			</check>
+			<check if="{{@pg.lastPage}}">
+				<li><a href="{{@BASE, @pg.route, @pg.prefix.@pg.lastPage}}?{{ @QUERY }}" data-i18n-html="lbl.core.last"
+					   data-i18n-args="{{ @i18n.label.core.last, @pg.lastPage | format }}">{{ @i18n.label.core.last }} [{{ @pg.lastPage }}]</a></li>
+			</check>
+		</ul>
+	</div>
+</div>

@@ -1,0 +1,11 @@
+<?xml version="1.0"?>
+<!DOCTYPE cross-domain-policy SYSTEM "http://www.adobe.com/xml/dtds/cross-domain-policy.dtd">
+<cross-domain-policy>
+    <site-control permitted-cross-domain-policies="all"/>
+
+    <!-- Place top level domain name -->
+    <allow-access-from domain="192.168.33.38" />
+    <allow-access-from domain="192.168.33.38" to-ports="80"/>
+    <allow-http-request-headers-from domain="192.168.33.38" headers="*" />
+
+</cross-domain-policy>

@@ -1,0 +1,13 @@
+.idea/
+.vagrant/
+vendor/
+logs/*
+tmp/*
+bin/*
+public/minified/*
+public/xcache/*
+public/exam/*
+uploads/*
+*.log
+chat/node_modules
+*.iml

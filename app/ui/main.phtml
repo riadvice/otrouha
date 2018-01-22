@@ -1,0 +1,30 @@
+<include href="header.phtml"/>
+
+<body id="{{ \Cache::instance()->get(\Enum\CacheKey::Organisation) }}">
+
+<div class="container">
+
+    <div class="row">
+        <include href="common/navbar.phtml"/>
+    </div>
+
+    <div class="row">
+
+        <div class="col-md-2">
+
+            <include href="common/sidebar.phtml"/>
+        </div>
+
+        <check if="{{ @@partial }}">
+            <include href="{{ @partial }}"/>
+        </check>
+
+    </div>
+
+</div>
+
+<include href="common/copyright.phtml"/>
+
+</body>
+
+<include href="footer.phtml"/>
